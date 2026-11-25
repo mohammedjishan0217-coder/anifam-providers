@@ -10,8 +10,8 @@
   {
     "display_name": "YouTube",
     "value": "youtube",
-    "version": "1.0",
-    "icon": "https://www.youtube.com/s/desktop/e2de4859/img/favicon_144x144.png",
+    "version": "1.1",
+    "icon": "https://www.gstatic.com/youtube/img/branding/favicon/favicon_192x192.png",
     "type": "global",
     "hasSettings": true,
     "disabled": false

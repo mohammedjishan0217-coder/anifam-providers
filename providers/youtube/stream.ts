@@ -7,6 +7,38 @@ function extractVideoId(url: string): string {
   return url;
 }
 
+function formatSize(bytes: number): string {
+  if (!bytes || isNaN(bytes) || bytes <= 0) return "";
+  const gb = bytes / (1024 * 1024 * 1024);
+  if (gb >= 1) {
+    return `${gb.toFixed(2)} GB`;
+  }
+  const mb = bytes / (1024 * 1024);
+  if (mb >= 1) {
+    return `${mb.toFixed(1)} MB`;
+  }
+  const kb = bytes / 1024;
+  return `${kb.toFixed(0)} KB`;
+}
+
+function getFormatBytes(f: any, durationSec: number): number {
+  if (f.contentLength) {
+    const parsed = parseInt(f.contentLength, 10);
+    if (!isNaN(parsed) && parsed > 0) return parsed;
+  }
+  const bitrate = f.averageBitrate || f.bitrate;
+  if (bitrate && durationSec > 0) {
+    return Math.round((bitrate * durationSec) / 8);
+  }
+  if (f.approxDurationMs && bitrate) {
+    const sec = parseInt(f.approxDurationMs, 10) / 1000;
+    if (sec > 0) {
+      return Math.round((bitrate * sec) / 8);
+    }
+  }
+  return 0;
+}
+
 export const getStream = async function ({
   link,
   type,
@@ -124,6 +156,8 @@ export const getStream = async function ({
 
   if (!playerRes?.streamingData) return [];
 
+  const durationSec = parseInt(playerRes.videoDetails?.lengthSeconds || "0", 10);
+
   // Extract subtitles
   const subtitles: TextTrack[] = [];
   const captionTracks = playerRes.captions?.playerCaptionsTracklistRenderer?.captionTracks || [];
@@ -148,13 +182,19 @@ export const getStream = async function ({
     if (f.url && !(f.cipher || f.signatureCipher)) {
       const q = f.qualityLabel || f.quality || "360p";
       const qNum = parseInt(q.replace(/\D/g, ""), 10) || 360;
+      const bytes = getFormatBytes(f, durationSec);
+      const sizeStr = formatSize(bytes);
+      const serverLabel = sizeStr ? `YouTube Direct (${q} Audio+Video) • ${sizeStr}` : `YouTube Direct (${q} Audio+Video)`;
+      const qualityLabel = sizeStr ? `${qNum}p (${sizeStr})` : qNum.toString();
+
       streams.push({
-        server: `YouTube Direct (${q} Audio+Video)`,
+        server: serverLabel,
         link: f.url,
         type: "mp4",
-        quality: qNum.toString(),
-        subtitles: subtitles.length > 0 ? subtitles : undefined
-      });
+        quality: qualityLabel,
+        subtitles: subtitles.length > 0 ? subtitles : undefined,
+        ...(sizeStr ? { tag: sizeStr, tags: [sizeStr] } : {})
+      } as Stream);
     }
   }
 
@@ -170,13 +210,21 @@ export const getStream = async function ({
 
       if (!seenQualities.has(formatKey)) {
         seenQualities.add(formatKey);
+        const bytes = getFormatBytes(f, durationSec);
+        const sizeStr = formatSize(bytes);
+        const serverLabel = sizeStr
+          ? `YouTube ${qLabel} (${isMp4 ? "MP4" : "WebM"}) • ${sizeStr}`
+          : `YouTube ${qLabel} (${isMp4 ? "MP4" : "WebM"})`;
+        const qualityLabel = sizeStr ? `${qNum}p (${sizeStr})` : qNum.toString();
+
         streams.push({
-          server: `YouTube ${qLabel} (${isMp4 ? "MP4" : "WebM"})`,
+          server: serverLabel,
           link: f.url,
           type: ext,
-          quality: qNum.toString(),
-          subtitles: subtitles.length > 0 ? subtitles : undefined
-        });
+          quality: qualityLabel,
+          subtitles: subtitles.length > 0 ? subtitles : undefined,
+          ...(sizeStr ? { tag: sizeStr, tags: [sizeStr] } : {})
+        } as Stream);
       }
     }
   }
@@ -186,13 +234,21 @@ export const getStream = async function ({
     if (f.url && !(f.cipher || f.signatureCipher) && f.mimeType?.startsWith("audio/")) {
       const isAac = f.mimeType?.includes("mp4");
       const codecName = isAac ? "AAC (m4a)" : "Opus (webm)";
+      const bytes = getFormatBytes(f, durationSec);
+      const sizeStr = formatSize(bytes);
+      const serverLabel = sizeStr
+        ? `YouTube Audio Only (${codecName}) • ${sizeStr}`
+        : `YouTube Audio Only (${codecName})`;
+      const qualityLabel = sizeStr ? `Audio (${sizeStr})` : "Audio";
+
       streams.push({
-        server: `YouTube Audio Only (${codecName})`,
+        server: serverLabel,
         link: f.url,
         type: isAac ? "mp4" : "mkv",
-        quality: "Audio",
-        subtitles: subtitles.length > 0 ? subtitles : undefined
-      });
+        quality: qualityLabel,
+        subtitles: subtitles.length > 0 ? subtitles : undefined,
+        ...(sizeStr ? { tag: sizeStr, tags: [sizeStr] } : {})
+      } as Stream);
     }
   }
 
@@ -203,14 +259,14 @@ export const getStream = async function ({
       const bCombined = b.server.includes("Audio+Video");
       if (aCombined && !bCombined) return -1;
       if (!aCombined && bCombined) return 1;
-      const aQ = parseInt(a.quality || "0", 10) || 0;
-      const bQ = parseInt(b.quality || "0", 10) || 0;
+      const aQ = parseInt((a.quality || "0").replace(/\D/g, ""), 10) || 0;
+      const bQ = parseInt((b.quality || "0").replace(/\D/g, ""), 10) || 0;
       return bQ - aQ;
     });
   } else {
     streams.sort((a, b) => {
-      const aQ = parseInt(a.quality || "0", 10) || 0;
-      const bQ = parseInt(b.quality || "0", 10) || 0;
+      const aQ = parseInt((a.quality || "0").replace(/\D/g, ""), 10) || 0;
+      const bQ = parseInt((b.quality || "0").replace(/\D/g, ""), 10) || 0;
       return bQ - aQ;
     });
   }
