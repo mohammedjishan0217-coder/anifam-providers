@@ -54,7 +54,7 @@ exports.getStream = async function ({
   let visitorData = null;
   let sts = 20779;
 
-  // Step 1: Fetch watch page for visitorData and sts
+  // Step 1: Fetch watch page for visitorData and sts (required to avoid LOGIN_REQUIRED)
   try {
     const watchUrl = `https://www.youtube.com/watch?v=${videoId}&bpctr=9999999999&has_verified=1`;
     const watchRes = await axios.get(watchUrl, {
@@ -71,11 +71,11 @@ exports.getStream = async function ({
     const sMatch = html.match(/\"sts\":(\d+)/i) || html.match(/\"signatureTimestamp\":(\d+)/i);
     if (sMatch) sts = parseInt(sMatch[1], 10);
   } catch (e) {
-    // Proceed with defaults
+    // Proceed with default sts
   }
 
-  // Step 2: Request VISIONOS client
-  const clientPayload = {
+  // Step 2: Query VISIONOS (primary for HLS + Subtitles) and ANDROID_VR (for direct 360p pre-muxed mp4) in parallel
+  const visionPayload = {
     context: {
       client: {
         clientName: "VISIONOS",
@@ -100,63 +100,64 @@ exports.getStream = async function ({
     racyCheckOk: true
   };
 
-  const reqHeaders = {
+  const vrPayload = {
+    context: {
+      client: {
+        clientName: "ANDROID_VR",
+        clientVersion: "1.60.19",
+        hl: "en",
+        gl: "US"
+      }
+    },
+    videoId,
+    contentCheckOk: true,
+    racyCheckOk: true
+  };
+
+  const visionHeaders = {
     "Content-Type": "application/json",
     "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 15_7_3) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15",
     "X-YouTube-Client-Name": "101",
     "X-YouTube-Client-Version": "1.02",
     "Origin": "https://www.youtube.com"
   };
-  if (visitorData) reqHeaders["X-Goog-Visitor-Id"] = visitorData;
+  if (visitorData) visionHeaders["X-Goog-Visitor-Id"] = visitorData;
 
-  let playerRes = null;
-  try {
-    const res = await axios.post("https://www.youtube.com/youtubei/v1/player?prettyPrint=false", clientPayload, {
-      headers: reqHeaders,
+  const vrHeaders = {
+    "Content-Type": "application/json",
+    "User-Agent": "Mozilla/5.0",
+    "Origin": "https://www.youtube.com"
+  };
+  if (visitorData) vrHeaders["X-Goog-Visitor-Id"] = visitorData;
+
+  const [visionResResult, vrResResult] = await Promise.allSettled([
+    axios.post("https://www.youtube.com/youtubei/v1/player?prettyPrint=false", visionPayload, {
+      headers: visionHeaders,
       signal
-    });
-    playerRes = res.data;
-  } catch (err) {
-    playerRes = null;
-  }
+    }),
+    axios.post("https://www.youtube.com/youtubei/v1/player?prettyPrint=false", vrPayload, {
+      headers: vrHeaders,
+      signal
+    })
+  ]);
 
-  // Fallback to ANDROID_VR if needed
-  if (!playerRes?.streamingData || (!playerRes.streamingData.formats && !playerRes.streamingData.adaptiveFormats)) {
-    try {
-      const androidPayload = {
-        context: {
-          client: {
-            clientName: "ANDROID_VR",
-            clientVersion: "1.60.19",
-            hl: "en",
-            gl: "US"
-          }
-        },
-        videoId,
-        contentCheckOk: true,
-        racyCheckOk: true
-      };
-      const res = await axios.post("https://www.youtube.com/youtubei/v1/player?prettyPrint=false", androidPayload, {
-        headers: {
-          "Content-Type": "application/json",
-          "User-Agent": "Mozilla/5.0",
-          "Origin": "https://www.youtube.com"
-        },
-        signal
-      });
-      playerRes = res.data;
-    } catch (e) {
-      // Ignore
-    }
-  }
+  const visionData = visionResResult.status === "fulfilled" ? visionResResult.value?.data : null;
+  const vrData = vrResResult.status === "fulfilled" ? vrResResult.value?.data : null;
 
-  if (!playerRes?.streamingData) return [];
+  const mainData = visionData?.streamingData ? visionData : vrData;
+  if (!mainData?.streamingData) return [];
 
-  const durationSec = parseInt(playerRes.videoDetails?.lengthSeconds || "0", 10);
+  const durationSec = parseInt(mainData.videoDetails?.lengthSeconds || vrData?.videoDetails?.lengthSeconds || "0", 10);
+  const hlsManifestUrl = mainData.streamingData.hlsManifestUrl || vrData?.streamingData?.hlsManifestUrl;
+  const adaptiveFormats = mainData.streamingData.adaptiveFormats || vrData?.streamingData?.adaptiveFormats || [];
 
-  // Extract subtitles
+  // Extract subtitles / closed captions
   const subtitles = [];
-  const captionTracks = playerRes.captions?.playerCaptionsTracklistRenderer?.captionTracks || [];
+  const captionTracks =
+    mainData.captions?.playerCaptionsTracklistRenderer?.captionTracks ||
+    vrData?.captions?.playerCaptionsTracklistRenderer?.captionTracks ||
+    [];
+
   for (const track of captionTracks) {
     if (track.baseUrl) {
       const langName = track.name?.runs?.[0]?.text || track.name?.simpleText || track.languageCode;
@@ -170,17 +171,63 @@ exports.getStream = async function ({
   }
 
   const streams = [];
-  const formats = playerRes.streamingData.formats || [];
-  const adaptiveFormats = playerRes.streamingData.adaptiveFormats || [];
 
-  // 1. Combined audio+video formats (pre-muxed, instant playback and simple downloading)
-  for (const f of formats) {
-    if (f.url && !(f.cipher || f.signatureCipher)) {
+  // 1. PRIMARY STREAM: HLS Master Playlist (Full synced audio + video up to 4K/1080p)
+  // ExoPlayer natively handles demuxed HLS with video + audio in perfect synchronization.
+  // Vega App's HLS downloader downloads both the video playlist and default audio playlist and merges them into an MP4!
+  if (hlsManifestUrl) {
+    let bestVideoBw = 0;
+    for (const f of adaptiveFormats) {
+      if (f.mimeType?.startsWith("video/")) {
+        const bw = f.averageBitrate || f.bitrate || 0;
+        if (bw > bestVideoBw && (f.height || 0) <= 1080) {
+          bestVideoBw = bw;
+        }
+      }
+    }
+    let audioBw = 128000;
+    for (const f of adaptiveFormats) {
+      if (f.mimeType?.startsWith("audio/mp4")) {
+        audioBw = f.averageBitrate || f.bitrate || 128000;
+        break;
+      }
+    }
+    const hlsTotalBw = (bestVideoBw || 2500000) + audioBw;
+    const hlsBytes = durationSec > 0 ? Math.round((hlsTotalBw * durationSec) / 8) : 0;
+    const hlsSizeStr = formatSize(hlsBytes);
+
+    const hlsServer = hlsSizeStr
+      ? `YouTube Best Quality (Auto / 1080p HLS • Audio Included) • ~${hlsSizeStr}`
+      : `YouTube Best Quality (Auto / 1080p HLS • Audio Included)`;
+    const hlsQuality = hlsSizeStr ? `Auto / 1080p (~${hlsSizeStr})` : `Auto / 1080p`;
+
+    streams.push({
+      server: hlsServer,
+      link: hlsManifestUrl,
+      type: "m3u8",
+      quality: hlsQuality,
+      subtitles: subtitles.length > 0 ? subtitles : undefined,
+      tag: hlsSizeStr ? `~${hlsSizeStr} • Full Audio` : "Full Audio",
+      tags: ["Full Audio", hlsSizeStr].filter(Boolean)
+    });
+  }
+
+  // 2. Combined audio+video formats (pre-muxed single file formats, e.g. itag 18 360p)
+  const combinedFormats = [
+    ...(mainData.streamingData.formats || []),
+    ...(vrData?.streamingData?.formats || [])
+  ];
+  const seenItags = new Set();
+  for (const f of combinedFormats) {
+    if (f.url && !(f.cipher || f.signatureCipher) && !seenItags.has(f.itag)) {
+      seenItags.add(f.itag);
       const q = f.qualityLabel || f.quality || "360p";
       const qNum = parseInt(q.replace(/\D/g, ""), 10) || 360;
       const bytes = getFormatBytes(f, durationSec);
       const sizeStr = formatSize(bytes);
-      const serverLabel = sizeStr ? `YouTube Direct (${q} Audio+Video) • ${sizeStr}` : `YouTube Direct (${q} Audio+Video)`;
+      const serverLabel = sizeStr
+        ? `YouTube Direct MP4 (${q} Audio+Video) • ${sizeStr}`
+        : `YouTube Direct MP4 (${q} Audio+Video)`;
       const qualityLabel = sizeStr ? `${qNum}p (${sizeStr})` : qNum.toString();
 
       streams.push({
@@ -189,43 +236,13 @@ exports.getStream = async function ({
         type: "mp4",
         quality: qualityLabel,
         subtitles: subtitles.length > 0 ? subtitles : undefined,
-        ...(sizeStr ? { tag: sizeStr, tags: [sizeStr] } : {})
+        tag: sizeStr ? `${sizeStr} • Audio+Video` : "Audio+Video",
+        tags: ["Audio+Video", sizeStr].filter(Boolean)
       });
     }
   }
 
-  // 2. High Quality Adaptive Video Formats (4K, 1440p, 1080p, 720p, 480p, 360p)
-  const seenQualities = new Set();
-  for (const f of adaptiveFormats) {
-    if (f.url && !(f.cipher || f.signatureCipher) && f.mimeType?.startsWith("video/")) {
-      const qLabel = f.qualityLabel || `${f.height}p` || "video";
-      const qNum = f.height || parseInt(qLabel.replace(/\D/g, ""), 10) || 720;
-      const isMp4 = f.mimeType?.includes("mp4");
-      const ext = isMp4 ? "mp4" : "mkv";
-      const formatKey = `${qLabel}-${isMp4 ? "mp4" : "webm"}`;
-
-      if (!seenQualities.has(formatKey)) {
-        seenQualities.add(formatKey);
-        const bytes = getFormatBytes(f, durationSec);
-        const sizeStr = formatSize(bytes);
-        const serverLabel = sizeStr
-          ? `YouTube ${qLabel} (${isMp4 ? "MP4" : "WebM"}) • ${sizeStr}`
-          : `YouTube ${qLabel} (${isMp4 ? "MP4" : "WebM"})`;
-        const qualityLabel = sizeStr ? `${qNum}p (${sizeStr})` : qNum.toString();
-
-        streams.push({
-          server: serverLabel,
-          link: f.url,
-          type: ext,
-          quality: qualityLabel,
-          subtitles: subtitles.length > 0 ? subtitles : undefined,
-          ...(sizeStr ? { tag: sizeStr, tags: [sizeStr] } : {})
-        });
-      }
-    }
-  }
-
-  // 3. Audio Formats (AAC 128k / Opus)
+  // 3. Audio Formats (AAC 128k / Opus) - for music/podcast listening and downloading
   for (const f of adaptiveFormats) {
     if (f.url && !(f.cipher || f.signatureCipher) && f.mimeType?.startsWith("audio/")) {
       const isAac = f.mimeType?.includes("mp4");
@@ -243,29 +260,69 @@ exports.getStream = async function ({
         type: isAac ? "mp4" : "mkv",
         quality: qualityLabel,
         subtitles: subtitles.length > 0 ? subtitles : undefined,
-        ...(sizeStr ? { tag: sizeStr, tags: [sizeStr] } : {})
+        tag: sizeStr ? `${sizeStr} • Audio Only` : "Audio Only",
+        tags: ["Audio Only", sizeStr].filter(Boolean)
       });
     }
   }
 
-  // Sorting
+  // 4. Adaptive Video-Only Streams (only in download mode, and explicitly marked as Mute / No Audio)
   if (isDownload) {
-    streams.sort((a, b) => {
-      const aCombined = a.server.includes("Audio+Video");
-      const bCombined = b.server.includes("Audio+Video");
-      if (aCombined && !bCombined) return -1;
-      if (!aCombined && bCombined) return 1;
-      const aQ = parseInt((a.quality || "0").replace(/\D/g, ""), 10) || 0;
-      const bQ = parseInt((b.quality || "0").replace(/\D/g, ""), 10) || 0;
-      return bQ - aQ;
-    });
-  } else {
-    streams.sort((a, b) => {
-      const aQ = parseInt((a.quality || "0").replace(/\D/g, ""), 10) || 0;
-      const bQ = parseInt((b.quality || "0").replace(/\D/g, ""), 10) || 0;
-      return bQ - aQ;
-    });
+    const seenAdaptive = new Set();
+    for (const f of adaptiveFormats) {
+      if (f.url && !(f.cipher || f.signatureCipher) && f.mimeType?.startsWith("video/")) {
+        const qLabel = f.qualityLabel || `${f.height}p` || "video";
+        const qNum = f.height || parseInt(qLabel.replace(/\D/g, ""), 10) || 720;
+        const isMp4 = f.mimeType?.includes("mp4");
+        const ext = isMp4 ? "mp4" : "mkv";
+        const formatKey = `${qLabel}-${ext}`;
+
+        if (!seenAdaptive.has(formatKey)) {
+          seenAdaptive.add(formatKey);
+          const bytes = getFormatBytes(f, durationSec);
+          const sizeStr = formatSize(bytes);
+          const serverLabel = sizeStr
+            ? `YouTube ${qLabel} (${ext.toUpperCase()} • Video Only - No Audio) • ${sizeStr}`
+            : `YouTube ${qLabel} (${ext.toUpperCase()} • Video Only - No Audio)`;
+          const qualityLabel = sizeStr ? `${qNum}p Mute (${sizeStr})` : `${qNum}p (No Audio)`;
+
+          streams.push({
+            server: serverLabel,
+            link: f.url,
+            type: ext,
+            quality: qualityLabel,
+            subtitles: subtitles.length > 0 ? subtitles : undefined,
+            tag: sizeStr ? `${sizeStr} • Mute` : "Mute (No Audio)",
+            tags: ["Video Only", "Mute", sizeStr].filter(Boolean)
+          });
+        }
+      }
+    }
   }
+
+  // Sorting:
+  // - Top priority is always streams with Full Audio (HLS master playlist with synced audio, pre-muxed mp4)
+  // - Audio-only streams next
+  // - Video-only (mute) streams always at the bottom
+  streams.sort((a, b) => {
+    const aIsMute = a.server.includes("No Audio") || a.server.includes("Mute");
+    const bIsMute = b.server.includes("No Audio") || b.server.includes("Mute");
+    if (!aIsMute && bIsMute) return -1;
+    if (aIsMute && !bIsMute) return 1;
+
+    const aIsAudioOnly = a.server.includes("Audio Only");
+    const bIsAudioOnly = b.server.includes("Audio Only");
+    if (!aIsAudioOnly && bIsAudioOnly) return -1;
+    if (aIsAudioOnly && !bIsAudioOnly) return 1;
+
+    // Between HLS and Direct MP4: HLS provides up to 1080p/4K resolution
+    const aIsM3u8 = a.type === "m3u8";
+    const bIsM3u8 = b.type === "m3u8";
+    if (aIsM3u8 && !bIsM3u8) return -1;
+    if (!aIsM3u8 && bIsM3u8) return 1;
+
+    return 0;
+  });
 
   return streams;
 };
