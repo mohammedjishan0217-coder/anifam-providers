@@ -6,5 +6,14 @@
     "icon": "https://anifam.net/icon.png",
     "type": "global",
     "disabled": false
+  },
+  {
+    "display_name": "YouTube",
+    "value": "youtube",
+    "version": "1.0",
+    "icon": "https://www.youtube.com/s/desktop/e2de4859/img/favicon_144x144.png",
+    "type": "global",
+    "hasSettings": true,
+    "disabled": false
   }
 ]
