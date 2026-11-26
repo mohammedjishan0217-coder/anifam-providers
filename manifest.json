@@ -24,5 +24,14 @@
     "type": "global",
     "hasSettings": true,
     "disabled": false
+  },
+  {
+    "display_name": "Crunchyroll",
+    "value": "crunchyroll",
+    "version": "1.0",
+    "icon": "https://www.crunchyroll.com/build/assets/img/favicons/favicon-v2-192x192.png",
+    "type": "global",
+    "hasSettings": true,
+    "disabled": false
   }
 ]

@@ -1,27 +1,3 @@
-"use strict";
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.genres = exports.catalog = void 0;
-
-exports.catalog = [
-  { title: "Trending", filter: "trending" },
-  { title: "Trending Movies & Trailers", filter: "trending movie trailers" },
-  { title: "Trending Music", filter: "trending music videos" },
-  { title: "Gaming", filter: "trending gaming" },
-  { title: "News & Current Affairs", filter: "top news today" },
-  { title: "Anime & Animation", filter: "anime trailers" },
-  { title: "4K Ultra HD", filter: "4K HDR video" },
-  { title: "Documentaries", filter: "full documentary" },
-  { title: "Podcasts", filter: "popular podcasts full episodes" }
-];
-
-exports.genres = [
-  { title: "Music", filter: "music" },
-  { title: "Movies", filter: "movie trailers" },
-  { title: "Gaming", filter: "gaming" },
-  { title: "Comedy", filter: "comedy" },
-  { title: "Animation", filter: "animation" },
-  { title: "Tech & Science", filter: "technology news" },
-  { title: "Sports", filter: "sports highlights" },
-  { title: "Education", filter: "educational video" },
-  { title: "Travel", filter: "travel vlog" }
-];
+// @vega-provider youtube
+// @vega-version 1.2
+"use strict";var __defProp=Object.defineProperty,__getOwnPropDesc=Object.getOwnPropertyDescriptor,__getOwnPropNames=Object.getOwnPropertyNames,__hasOwnProp=Object.prototype.hasOwnProperty,__export=(target,all)=>{for(var name in all)__defProp(target,name,{get:all[name],enumerable:!0})},__copyProps=(to,from,except,desc)=>{if(from&&"object"==typeof from||"function"==typeof from)for(let key of __getOwnPropNames(from))__hasOwnProp.call(to,key)||key===except||__defProp(to,key,{get:()=>from[key],enumerable:!(desc=__getOwnPropDesc(from,key))||desc.enumerable});return to},__toCommonJS=mod=>__copyProps(__defProp({},"__esModule",{value:!0}),mod),catalog_exports={};__export(catalog_exports,{catalog:()=>catalog,genres:()=>genres});var catalog=[{title:"Trending",filter:"trending"},{title:"Trending Movies & Trailers",filter:"trending movie trailers"},{title:"Trending Music",filter:"trending music videos"},{title:"Gaming",filter:"trending gaming"},{title:"News & Current Affairs",filter:"top news today"},{title:"Anime & Animation",filter:"anime trailers"},{title:"4K Ultra HD",filter:"4K HDR video"},{title:"Documentaries",filter:"full documentary"},{title:"Podcasts",filter:"popular podcasts full episodes"}],genres=[{title:"Music",filter:"music"},{title:"Movies",filter:"movie trailers"},{title:"Gaming",filter:"gaming"},{title:"Comedy",filter:"comedy"},{title:"Animation",filter:"animation"},{title:"Tech & Science",filter:"technology news"},{title:"Sports",filter:"sports highlights"},{title:"Education",filter:"educational video"},{title:"Travel",filter:"travel vlog"}];exports.catalog=catalog,exports.genres=genres;

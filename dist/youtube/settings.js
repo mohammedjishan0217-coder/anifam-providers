@@ -1,33 +1,3 @@
-"use strict";
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.getSettingsSchema = void 0;
-
-exports.getSettingsSchema = async function ({
-  providerContext,
-}) {
-  return [
-    {
-      key: "preferredQuality",
-      type: "select",
-      label: "Preferred Quality",
-      description: "Default streaming and download resolution",
-      options: [
-        { label: "Auto", value: "auto" },
-        { label: "4K Ultra HD (2160p)", value: "2160" },
-        { label: "1440p (QHD)", value: "1440" },
-        { label: "1080p (Full HD)", value: "1080" },
-        { label: "720p (HD)", value: "720" },
-        { label: "360p (Data Saver)", value: "360" },
-        { label: "Audio Only", value: "audio" }
-      ],
-      defaultValue: "auto"
-    },
-    {
-      key: "preferDirectCombined",
-      type: "toggle",
-      label: "Prefer Direct Single-File Format",
-      description: "Always select pre-muxed single file formats for simpler offline playback and sharing",
-      defaultValue: true
-    }
-  ];
-};
+// @vega-provider youtube
+// @vega-version 1.2
+"use strict";var __defProp=Object.defineProperty,__getOwnPropDesc=Object.getOwnPropertyDescriptor,__getOwnPropNames=Object.getOwnPropertyNames,__hasOwnProp=Object.prototype.hasOwnProperty,__name=(target,value)=>__defProp(target,"name",{value:value,configurable:!0}),__export=(target,all)=>{for(var name in all)__defProp(target,name,{get:all[name],enumerable:!0})},__copyProps=(to,from,except,desc)=>{if(from&&"object"==typeof from||"function"==typeof from)for(let key of __getOwnPropNames(from))__hasOwnProp.call(to,key)||key===except||__defProp(to,key,{get:()=>from[key],enumerable:!(desc=__getOwnPropDesc(from,key))||desc.enumerable});return to},__toCommonJS=mod=>__copyProps(__defProp({},"__esModule",{value:!0}),mod),__async=(__this,__arguments,generator)=>new Promise((resolve,reject)=>{var fulfilled=value=>{try{step(generator.next(value))}catch(e){reject(e)}},rejected=value=>{try{step(generator.throw(value))}catch(e){reject(e)}},step=x=>x.done?resolve(x.value):Promise.resolve(x.value).then(fulfilled,rejected);step((generator=generator.apply(__this,__arguments)).next())}),settings_exports={};__export(settings_exports,{getSettingsSchema:()=>getSettingsSchema});var getSettingsSchema=__name(function(_0){return __async(this,arguments,function*({providerContext:providerContext}){return[{key:"preferredQuality",type:"select",label:"Preferred Quality",description:"Default streaming and download resolution",options:[{label:"Auto",value:"auto"},{label:"4K Ultra HD (2160p)",value:"2160"},{label:"1440p (QHD)",value:"1440"},{label:"1080p (Full HD)",value:"1080"},{label:"720p (HD)",value:"720"},{label:"360p (Data Saver)",value:"360"},{label:"Audio Only",value:"audio"}],defaultValue:"auto"},{key:"preferDirectCombined",type:"toggle",label:"Prefer Direct Single-File Format",description:"Always select pre-muxed single file formats for simpler offline playback and sharing",defaultValue:!0}]})},"getSettingsSchema");exports.getSettingsSchema=getSettingsSchema;
